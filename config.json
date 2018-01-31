@@ -1,0 +1,5 @@
+{
+    "name": "Test",
+    "addr": "http://localhost:8080",
+    "output": "output"
+}
