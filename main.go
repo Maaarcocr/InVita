@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
-	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 	"time"
 )
@@ -29,7 +30,6 @@ func runCommand(command *string) {
 type config struct {
 	JobName    string `json:"name"`
 	ServerAddr string `json:"addr"`
-	OutputFile string `json:"output"`
 }
 
 func readFileContent(configFile *string) config {
@@ -53,20 +53,49 @@ func runAlive(config config) {
 	}
 }
 
-func done(config config) {
+func copyFile(src, dest string) {
+	from, err := os.Open(src)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer from.Close()
+
+	to, err := os.OpenFile(dest, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer to.Close()
+
+	_, err = io.Copy(to, from)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func done(config config, workDir, persistenDir *string) {
+	if _, err := os.Stat(path.Join(*workDir, "output.json")); !os.IsNotExist(err) {
+		copyFile(path.Join(*workDir, "output.json"), path.Join(*persistenDir, config.JobName+".output.json"))
+	}
+
 	var netClient = &http.Client{
 		Timeout: time.Second * 10,
 	}
 	netClient.Post(config.ServerAddr+"/done", "text/plain", bytes.NewBufferString(config.JobName))
 }
 
+func initialise(wordDir *string, configFile *string) {
+	copyFile(*configFile, path.Join(*wordDir, "input.json"))
+}
+
 func main() {
 	configFile := flag.String("config", "", "specify the config file location")
 	command := flag.String("command", "", "the command to run")
+	workDir := flag.String("workdir", "", "The working directory")
+	persistentDir := flag.String("persistentDir", "", "The persisten directory")
 	flag.Parse()
+	initialise(workDir, configFile)
 	config := readFileContent(configFile)
-	fmt.Println(config)
 	go runAlive(config)
 	runCommand(command)
-	done(config)
+	done(config, workDir, persistentDir)
 }
